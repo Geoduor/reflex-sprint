@@ -47,6 +47,11 @@ Small electronics retailers coordinate deliveries over WhatsApp and phone calls,
 ### Assignment Logic
 Manual: the dispatcher selects a rider from a list of available riders for each open request. No auto-assignment (nearest rider, load balancing) in v1 — see trade-offs.
 
+**Concurrency handling:** If two dispatchers attempt to assign the same request at nearly the same time, this is resolved at the database level, not the frontend. The `Assignment` table has a unique constraint on `delivery_request_id` — only one assignment can ever exist per request. The first write succeeds; the second fails and that dispatcher sees an "already assigned" message rather than silently double-assigning a rider.
+
+### Authentication & Account Creation
+Accounts are pre-created (seeded) by an admin/shop owner — there is no self-signup in v1, since this is a single small shop with a known, fixed set of staff and riders. Login is via phone number + PIN, reusing the SMS infrastructure already required for customer notifications. This is intentionally simple and scoped to a single-shop deployment (see §5, Out of Scope: multi-tenant support).
+
 ### Status Flow
 Linear state machine: `Assigned → Picked Up → Delivered`.
 - Each transition writes a new `StatusEvent` row.
