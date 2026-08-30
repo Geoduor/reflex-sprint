@@ -52,11 +52,14 @@ Manual: the dispatcher selects a rider from a list of available riders for each 
 ### Authentication & Account Creation
 Accounts are pre-created (seeded) by an admin/shop owner — there is no self-signup in v1, since this is a single small shop with a known, fixed set of staff and riders. Login is via phone number + PIN, reusing the SMS infrastructure already required for customer notifications. This is intentionally simple and scoped to a single-shop deployment (see §5, Out of Scope: multi-tenant support).
 
+**Status: implemented.** `POST /api/auth/login` authenticates against pre-seeded accounts (`src/config/seed.js`) using bcrypt-hashed PINs — the same generic error is returned for "no such user" and "wrong PIN" so the endpoint can't be used to enumerate valid phone numbers. The session token issued is intentionally minimal (a raw user id) for sprint scope — flagged in code as needing a real session/JWT scheme before any production use.
+
 ### Status Flow
 Linear state machine: `Assigned → Picked Up → Delivered`.
 - Each transition writes a new `StatusEvent` row.
 - Only the assigned rider can update their own delivery's status — enforced server-side (not just hidden in the UI), so this can't be bypassed by editing the client.
 - Delivery confirmation requires a successful scan match against the request's serial/IMEI where one was provided.
+- **Failed or mismatched scan:** if the scan doesn't match the request's serial/IMEI, or the scan itself fails, the status does NOT advance to "Delivered." The rider can retry the scan, or escalate — flagging the delivery for dispatcher review with a required note explaining what happened. This keeps a human in the loop rather than letting the rider bypass confirmation by tapping through, which would defeat the purpose of scanning in the first place.
 
 ### What Happens Outside the App
 - SMS to the customer on "Picked Up" and "Delivered."
