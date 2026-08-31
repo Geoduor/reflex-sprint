@@ -67,20 +67,37 @@ The doc calls out `ScanConfirmModal.jsx` as handling "scan + failed-scan
 escalation UI." This build includes a working version (with a demo toggle to
 simulate a failure) but the actual retry/backoff and dispatcher-notification
 behavior is a best guess, not a confirmed design — it should be checked against
-Mark's `docs/edge-cases.md` before being treated as final.
+Mark's `docs/edge-cases.md` before being treated as final. `src/api/client.js`
+has a matching `escalateScan()` stub ready for `POST /api/status/escalate`,
+but it isn't called from anywhere yet — the current failed-scan flow only
+updates local component state in `DeliveryDetailPage.jsx`.
 
 ## Connecting to the real backend
 
-All writes go through three functions in `src/api/client.js`:
+The three functions `App.jsx` actually calls today are still mock/local-state,
+but their TODO comments in `src/api/client.js` now point at the real endpoints:
 
-- `createDeliveryRequest(list, data)` → maps to `POST /api/delivery-requests`
-- `assignRider(list, requestId, riderId)` → maps to `POST /api/assignments`
-- `logStatusEvent(list, requestId, status, changedByName)` → maps to `POST /api/status-events`
+- `createDeliveryRequest(list, data)` → `POST /api/requests`
+- `assignRider(list, requestId, riderId)` → `POST /api/assignments`
+- `logStatusEvent(list, requestId, status, changedByName)` → splits into
+  `POST /api/status/picked-up` or `POST /api/status/confirm-delivery`
+  depending on the `status` value passed in (the backend uses two separate
+  endpoints here, not one generic one)
+
+The backend also exposes a few endpoints nothing in this build calls yet.
+`client.js` has stub functions ready for each, all currently throwing if
+called (so a broken wire-up fails loudly instead of silently no-op'ing):
+
+- `getOpenRequests()` → `GET /api/requests/open` (AssignPage still filters the full local list client-side instead)
+- `escalateScan(requestId, note)` → `POST /api/status/escalate` (deliberately unimplemented — see the ScanConfirmModal note below)
+- `login(phone, pin)` → `POST /api/auth/login` (there's no login screen in this build yet)
+- `getAuthHeaders()` → builds the `x-user-id` header every request needs once a session exists
 
 Each currently operates on local React state. To wire in Mark & Geofry's real API:
-1. Replace the body of each function with a `fetch()` call to the matching endpoint (base URL from `VITE_API_URL` in `.env`).
-2. Replace `seedRequests` in `src/data/seed.js` with an initial `GET /api/delivery-requests` fetch (e.g. in a `useEffect` in `App.jsx`).
+1. Replace the body of each function with a `fetch()` call to the matching endpoint (base URL from `VITE_API_URL` in `.env`), including `getAuthHeaders()` once login exists.
+2. Replace `seedRequests` in `src/data/seed.js` with an initial `GET /api/requests` (or similar) fetch (e.g. in a `useEffect` in `App.jsx`).
 3. For live sync across roles, add a Socket.IO client in `App.jsx` (using `VITE_SOCKET_URL`) and update `requests` state on incoming events, instead of relying on local `setRequests` calls alone.
+4. Build an actual login screen before `login()`/`getAuthHeaders()` are useful — right now the three "roles" are just routes, not authenticated sessions.
 
 No page or component needs to change for this swap — they only consume `requests`
 state and call the handler functions passed down from `App.jsx`.
@@ -93,3 +110,4 @@ state and call the handler functions passed down from `App.jsx`.
 - No handling/fragility notes field.
 - The serial/IMEI field is shown to the rider as a manual visual check; the scan confirms the delivery event, not an automated serial match.
 - Failed-scan escalation UI exists but its behavior is a placeholder pending Mark's edge-cases.md.
+- No login screen / authenticated session yet — the three "roles" are just routes; `login()` and the `x-user-id` header pattern the real backend expects are stubbed in `client.js` but unused.
