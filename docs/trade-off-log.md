@@ -11,3 +11,16 @@
 1. Serial number field is optional and unvalidated — worth deciding if v1 should require it, given the stated proof-of-authenticity purpose.
 2. No stated rider vetting/trust mechanism for high-value items, despite fraud being a named risk.
 3. Scan hardware/method for confirmation scanning isn't specified — could come up in cross-exam.
+4. ## Flagged for team discussion (not yet resolved — need team input)
+
+1. **Scan/serial-match behavior is inconsistently documented.** Mark's
+   edge-cases.md (Q1) assumes the system automatically detects a scan
+   mismatch against the request's serial/IMEI and logs it as a failed
+   confirmation_scan. Jane's frontend implementation currently shows the
+   serial/IMEI to the rider as a manual visual check — the scan itself
+   confirms the delivery event occurred, but does not automatically
+   verify a serial match. This needs to be resolved and made consistent
+   across the edge-cases doc, frontend, and backend before the panel
+   defense, since it materially affects our fraud-prevention argument
+   (an automatic system check is a stronger claim than a manual rider
+   check).
