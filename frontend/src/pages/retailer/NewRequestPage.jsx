@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { RETAILER_NAME } from "../../data/seed.js";
+import { createDeliveryRequest } from "../../api/client.js";
 import SectionHeader from "../../components/SectionHeader.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import DeliveryCard from "../../components/DeliveryCard.jsx";
@@ -14,8 +14,10 @@ function Field({ label, children }) {
   );
 }
 
-export default function NewRequestPage({ requests, onCreate }) {
+export default function NewRequestPage({ requests, onCreated }) {
   const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -24,17 +26,26 @@ export default function NewRequestPage({ requests, onCreate }) {
     serial_number: "",
   });
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     if (!form.customer_name || !form.customer_phone || !form.address || !form.item_description) return;
-    onCreate(form);
-    setForm({ customer_name: "", customer_phone: "", address: "", item_description: "", serial_number: "" });
-    setShowForm(false);
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createDeliveryRequest(form);
+      setForm({ customer_name: "", customer_phone: "", address: "", item_description: "", serial_number: "" });
+      setShowForm(false);
+      await onCreated(); // refresh the list from the server
+    } catch (err) {
+      setError(err.message || "Failed to create request");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Retailer Staff" title={RETAILER_NAME}>
+      <SectionHeader eyebrow="Retailer Staff" title="Log a delivery">
         <button
           onClick={() => setShowForm((s) => !s)}
           className="inline-flex items-center gap-1.5 rounded-md bg-cyan-400 px-3 py-2 text-sm font-medium text-slate-900 hover:bg-cyan-300 transition-colors"
@@ -88,11 +99,13 @@ export default function NewRequestPage({ requests, onCreate }) {
               placeholder="IMEI / serial, if applicable"
             />
           </Field>
+          {error && <div className="text-xs text-rose-400">{error}</div>}
           <button
             type="submit"
-            className="rounded-md bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-cyan-300 transition-colors"
+            disabled={submitting}
+            className="rounded-md bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-900 hover:bg-cyan-300 disabled:opacity-50 transition-colors"
           >
-            Submit request
+            {submitting ? "Submitting..." : "Submit request"}
           </button>
         </form>
       )}

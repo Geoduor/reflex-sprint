@@ -8,6 +8,7 @@ const requestsRoutes = require("./routes/requests");
 const assignmentsRoutes = require("./routes/assignments");
 const statusRoutes = require("./routes/status");
 const authRoutes = require("./routes/auth");
+const usersRoutes = require("./routes/users");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,7 @@ app.use("/api/requests", requestsRoutes);
 app.use("/api/assignments", assignmentsRoutes);
 app.use("/api/status", statusRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 

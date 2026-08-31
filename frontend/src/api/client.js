@@ -1,129 +1,161 @@
 /* ============================================================
-   API CLIENT
-   Wraps calls to the real backend (see backend/src/routes/).
-   Still mock/local-state for now — every write below operates
-   on the `list` passed in and returns a new array, which is how
-   App.jsx currently uses these (setRequests((list) => fn(list, ...))).
-   The exported function NAMES and SIGNATURES below are relied on
-   by App.jsx — don't rename/reshape createDeliveryRequest,
-   assignRider, or logStatusEvent without updating App.jsx too.
-
-   Auth: once wired for real, every request after login needs an
-   `x-user-id` header (see login() below and getAuthHeaders()).
+   API CLIENT — wired to the real backend.
+   Base URL comes from VITE_API_URL (see .env.example).
+   Session: after login(), the user id is kept in memory (module-level
+   variable) and sent as the `x-user-id` header on every request, per
+   backend/src/middleware/auth.js. This is intentionally the same
+   simple scheme the backend uses — see frozen-design.md's honest note
+   that this is not real session security, just sprint-scope auth.
    ============================================================ */
 
-const timeNow = () =>
-  new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+
+let currentUserId = null;
+let currentUser = null;
 
 /**
- * Creates a new DeliveryRequest.
- * TODO: replace body with `POST /api/requests`
+ * The backend stores status as lowercase/snake_case ('unassigned',
+ * 'assigned', 'picked_up', 'delivered' — see backend/src/config/schema.sql),
+ * but the UI components (StatusBadge, PulseRail) were built expecting
+ * Title Case ('Assigned', 'Picked Up', 'Delivered'), with falsy/unassigned
+ * shown as no status. Normalized here at the API boundary so no UI
+ * component needs to change.
  */
-export function createDeliveryRequest(list, data) {
-  const newReq = {
-    id: `req-${Date.now()}`,
-    ...data,
-    created_at: timeNow(),
-    assignment: null,
-    status: null, // null = logged but not yet assigned (no Assignment row yet)
-    events: [],
-  };
-  return [newReq, ...list];
+const STATUS_DISPLAY_MAP = {
+  unassigned: null,
+  assigned: "Assigned",
+  picked_up: "Picked Up",
+  delivered: "Delivered",
+};
+
+function normalizeRequest(req) {
+  return { ...req, status: STATUS_DISPLAY_MAP[req.status] ?? req.status };
+}
+
+export function getAuthHeaders() {
+  return currentUserId ? { "x-user-id": currentUserId } : {};
+}
+
+export function getCurrentUser() {
+  return currentUser;
+}
+
+export function logout() {
+  currentUserId = null;
+  currentUser = null;
+}
+
+async function request(method, path, body) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed: ${method} ${path} (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+
+  return data;
 }
 
 /**
- * Creates an Assignment and moves the request into "Assigned" status.
- * TODO: replace body with `POST /api/assignments`
- */
-export function assignRider(list, requestId, riderId) {
-  return list.map((r) =>
-    r.id === requestId
-      ? {
-          ...r,
-          assignment: { rider_id: riderId, assigned_at: timeNow() },
-          status: "Assigned",
-          events: [
-            ...r.events,
-            { status: "Assigned", timestamp: timeNow(), changed_by: "Dispatcher", confirmation_scan: false },
-          ],
-        }
-      : r
-  );
-}
-
-/**
- * Writes a StatusEvent (e.g. from a pickup/delivery scan) and updates
- * the request's current status. The real backend splits this into two
- * separate endpoints rather than one generic one:
- *   status === "Picked Up"  → TODO: `POST /api/status/picked-up`
- *   status === "Delivered"  → TODO: `POST /api/status/confirm-delivery`
- * Kept as a single function here (not two) because App.jsx and
- * DeliveryDetailPage.jsx already call it as one — branch on `status`
- * inside the fetch() body when wiring this up for real.
- */
-export function logStatusEvent(list, requestId, status, changedByName) {
-  const ts = timeNow();
-  return list.map((r) =>
-    r.id === requestId
-      ? {
-          ...r,
-          status,
-          events: [...r.events, { status, timestamp: ts, changed_by: changedByName, confirmation_scan: true }],
-        }
-      : r
-  );
-}
-
-/* ============================================================
-   NOT YET WIRED IN — stubs only.
-   These exist so the shape is ready once the pieces they connect
-   to are confirmed. None of them are called anywhere in the app
-   yet; wiring them in is a separate step from generating them.
-   ============================================================ */
-
-/**
- * Fetches the dispatcher's open-requests list from the server instead
- * of filtering the full local list client-side (which is what
- * AssignPage.jsx does today).
- * TODO: replace body with `GET /api/requests/open`
- */
-export async function getOpenRequests() {
-  throw new Error("getOpenRequests() is not wired up yet — AssignPage still filters the local requests list.");
-}
-
-/**
- * Failed-scan escalation. Deliberately NOT implemented beyond a stub —
- * ScanConfirmModal.jsx / DeliveryDetailPage.jsx currently handle a
- * failed scan with local component state only (an `escalations` array
- * in DeliveryDetailPage), and that flow is explicitly marked as
- * pending confirmation against Mark's docs/edge-cases.md. This stub
- * exists only so the shape is ready to call once that's resolved —
- * it does not encode any assumption about retry policy, who gets
- * notified, or what the payload should contain.
- * TODO: replace body with `POST /api/status/escalate`, once confirmed.
- */
-export async function escalateScan(requestId, note) {
-  throw new Error("escalateScan() is not wired up yet — pending Mark's docs/edge-cases.md.");
-}
-
-/**
- * Phone + PIN login. Not wired into any page yet — there's no login
- * screen in this build (the rider/dispatcher/staff "roles" are
- * currently just routes, not authenticated sessions).
- * TODO: replace body with `POST /api/auth/login`, store the returned
- * user id, and attach it as an `x-user-id` header (see getAuthHeaders)
- * on every subsequent request.
+ * Phone + PIN login. Stores the session in memory for subsequent requests.
+ * Maps to POST /api/auth/login.
  */
 export async function login(phone, pin) {
-  throw new Error("login() is not wired up yet — no auth flow exists in the UI yet.");
+  const data = await request("POST", "/auth/login", { phone, pin });
+  currentUserId = data.token;
+  currentUser = data.user;
+  return data.user;
 }
 
 /**
- * Once login() is wired up, use this to build the header object for
- * authenticated fetch() calls, e.g.:
- *   fetch(url, { headers: { "Content-Type": "application/json", ...getAuthHeaders() } })
+ * Retailer staff creates a new delivery request.
+ * Maps to POST /api/requests.
  */
-export function getAuthHeaders() {
-  const userId = null; // TODO: read from wherever login() ends up storing it (state/localStorage/etc.)
-  return userId ? { "x-user-id": userId } : {};
+export async function createDeliveryRequest(data) {
+  return request("POST", "/requests", data);
+}
+
+/**
+ * Dispatcher views open (unassigned) requests.
+ * Maps to GET /api/requests/open.
+ */
+export async function getOpenRequests() {
+  const data = await request("GET", "/requests/open");
+  return data.map(normalizeRequest);
+}
+
+/**
+ * Retailer views their own requests.
+ * Maps to GET /api/requests/mine.
+ */
+export async function getMyRequests() {
+  const data = await request("GET", "/requests/mine");
+  return data.map(normalizeRequest);
+}
+
+/**
+ * Dispatcher assigns a rider to an open request.
+ * Maps to POST /api/assignments. Note: the backend enforces one
+ * assignment per request via a DB unique constraint — a 409 here means
+ * someone else already assigned it (see frozen-design.md).
+ */
+export async function assignRider(deliveryRequestId, riderId) {
+  return request("POST", "/assignments", { delivery_request_id: deliveryRequestId, rider_id: riderId });
+}
+
+/**
+ * Rider views their assigned deliveries.
+ * Maps to GET /api/assignments/mine.
+ */
+export async function getMyDeliveries() {
+  const data = await request("GET", "/assignments/mine");
+  return data.map(normalizeRequest);
+}
+
+/**
+ * Dispatcher fetches the list of riders available to assign.
+ * Maps to GET /api/users?role=rider.
+ */
+export async function getRiders() {
+  return request("GET", "/users?role=rider");
+}
+
+/**
+ * Rider marks a delivery picked up.
+ * Maps to POST /api/status/picked-up.
+ */
+export async function markPickedUp(deliveryRequestId) {
+  return request("POST", "/status/picked-up", { delivery_request_id: deliveryRequestId });
+}
+
+/**
+ * Rider confirms delivery via scan. A mismatched scan is a deliberate
+ * design behavior — the backend returns 409 and does NOT advance status
+ * (see frozen-design.md, Status Flow). Callers should catch this and
+ * show the failed-scan UI, not treat it as an unexpected error.
+ * Maps to POST /api/status/confirm-delivery.
+ */
+export async function confirmDelivery(deliveryRequestId, scannedValue) {
+  return request("POST", "/status/confirm-delivery", {
+    delivery_request_id: deliveryRequestId,
+    scanned_value: scannedValue,
+  });
+}
+
+/**
+ * Escalation when a rider can't resolve a failed scan themselves.
+ * Maps to POST /api/status/escalate. Requires a note (enforced server-side).
+ */
+export async function escalateScan(deliveryRequestId, note) {
+  return request("POST", "/status/escalate", { delivery_request_id: deliveryRequestId, note });
 }

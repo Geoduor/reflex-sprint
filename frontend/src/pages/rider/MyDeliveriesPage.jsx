@@ -1,36 +1,25 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { RIDERS } from "../../data/seed.js";
-import SectionHeader from "../../components/SectionHeader.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import DeliveryCard from "../../components/DeliveryCard.jsx";
+import SectionHeader from "../../components/SectionHeader.jsx";
 
-export default function MyDeliveriesPage({ requests, riderId, setRiderId }) {
+// Note: the rider-switcher dropdown from the mock build is gone — the
+// rider is now whoever is actually logged in (see App.jsx / client.js
+// session), not a UI toggle. `requests` here is already scoped to the
+// current rider by the backend (GET /api/assignments/mine).
+export default function MyDeliveriesPage({ requests }) {
   const navigate = useNavigate();
-  const mine = requests.filter((r) => r.assignment?.rider_id === riderId && r.status !== "Delivered");
-  const currentRider = RIDERS.find((r) => r.id === riderId);
+  const mine = requests.filter((r) => r.status !== "Delivered");
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Rider" title="My deliveries">
-        <select
-          value={riderId}
-          onChange={(e) => setRiderId(e.target.value)}
-          className="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-300 outline-none focus:border-cyan-400"
-        >
-          {RIDERS.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-      </SectionHeader>
-
+      <SectionHeader eyebrow="Rider" title="My deliveries" />
       <div className="space-y-2.5">
         {mine.map((r) => (
           <DeliveryCard key={r.id} request={r} onClick={() => navigate(`/rider/${r.id}`)} />
         ))}
-        {mine.length === 0 && <EmptyState text={`No active deliveries for ${currentRider?.name}.`} />}
+        {mine.length === 0 && <EmptyState text="No active deliveries assigned to you." />}
       </div>
     </div>
   );
